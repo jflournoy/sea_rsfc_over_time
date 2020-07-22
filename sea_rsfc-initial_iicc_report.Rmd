@@ -1,0 +1,188 @@
+---
+title: "SEA rsfcMRI - Longitudinal Descriptives"
+author: "John Flournoy"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    code_folding: hide
+---
+
+```{css, echo=FALSE}
+@import url('https://fonts.googleapis.com/css?family=Didact+Gothic&display=swap');
+@import url('https://fonts.googleapis.com/css?family=Fira+Code&display=swap');
+body{
+  font-family: 'Didact Gothic',  sans-serif;
+}
+pre code {
+  font-family: 'Fira Code',  monospace;
+}
+```
+
+```{r setup, include=FALSE}
+library(ggplot2)
+library(data.table)
+library(dplyr)
+library(tidyr)
+#{.tabset}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+apal <- paste0('#',c('2C2B2B', 'F9773B', 'FFEA8C', '1389E6', 'D2E5E7'))
+jftheme <- theme_minimal() +  
+    theme(text = element_text(family = 'Didact Gothic', size = 14),
+          panel.background = element_rect(fill = apal[[5]], size = 0, color = apal[[2]]),
+          panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(), 
+          strip.background = element_rect(fill = apal[[3]], size = 0),
+          strip.text = element_text(color = '#222222'),
+          axis.text =  element_text(color = apal[[1]]), axis.title = element_text(color = apal[[1]]))
+knitr::read_chunk('collect_data.R')
+```
+
+# Load the data
+
+Starting with the Schaefer 400-parcel, 7 network atlas.
+
+```{r collect_data}
+```
+
+Retain just within-network connectivity. Also, Fisher-z transform the correlations for analyses. One small detail that is important here is that we keep network connectivity for same-hemisphere parcels only.
+
+```{r}
+sea_schaefer400_7_withinnet <- copy(adt_labels)
+
+sub_regex <- '[LR]H_[A-Za-z]+_*(.*)'
+net_regex <- '[LR]H_([A-Za-z]+)_*(?:.*)'
+hem_regex <- '([LR]H)_[A-Za-z]+_*(?:.*)'
+sea_schaefer400_7_withinnet_nets <- distinct(sea_schaefer400_7_withinnet, network1)
+sea_schaefer400_7_withinnet_nets[, sub1 := gsub(sub_regex, '\\1', network1)]
+sea_schaefer400_7_withinnet_nets[, net1 := gsub(net_regex, '\\1', network1)]
+sea_schaefer400_7_withinnet_nets[, hem1 := gsub(hem_regex, '\\1', network1)]
+setkey(sea_schaefer400_7_withinnet, network1)
+setkey(sea_schaefer400_7_withinnet_nets, network1)
+sea_schaefer400_7_withinnet <- sea_schaefer400_7_withinnet_nets[sea_schaefer400_7_withinnet]
+
+setnames(sea_schaefer400_7_withinnet_nets, c('network2', 'sub2', 'net2', 'hem2'))
+setkey(sea_schaefer400_7_withinnet, network2)
+setkey(sea_schaefer400_7_withinnet_nets, network2)
+sea_schaefer400_7_withinnet <- sea_schaefer400_7_withinnet_nets[sea_schaefer400_7_withinnet]
+
+sea_schaefer400_7_withinnet <- sea_schaefer400_7_withinnet[net1 == net2 & hem1 == hem2]
+sea_schaefer400_7_withinnet[, c('network1', 'network2') := NULL]
+sea_schaefer400_7_withinnet[, z := atanh(r)]
+sea_schaefer400_7_withinnet[, H := dplyr::case_when(hem1 == 'RH' ~ -1,
+                                                    hem1 == 'LH' ~ 1)]
+if(!dim(distinct(sea_schaefer400_7_withinnet, net1, net2, hem1, hem2))[[1]] == 14){
+  stop('Incorrect number of networks')
+}
+```
+
+# Some QC
+
+```{r fig.width=10, fig.height=10}
+hist_plot_fname <- 'hist_plot.png'
+if(!file.exists(hist_plot_fname)){
+  hist_plot <- ggplot(sea_schaefer400_7_withinnet, aes(x = z)) + 
+    geom_density(data = sea_schaefer400_7_withinnet[,'z'], aes(fill = 'Group', color = 'Group'), alpha = .5) + 
+    geom_density(aes(fill = 'ID', color = 'ID'), alpha = .5) + 
+    scale_fill_manual(aesthetics = c('color','fill'), breaks = c('Group', 'ID'), labels = c('Group', 'ID'), values = apal[c(4,2)], name = 'Data') +
+    facet_wrap(~id) + 
+    jftheme
+  
+  ggsave(hist_plot_fname, hist_plot)
+}
+knitr::include_graphics(hist_plot_fname)
+```
+
+# Modeling
+
+We are interested in stability and variability for each network. For each participant, we have multiple sessions, and within each session, we have multiple parcel-parcel pairs that provide information about the within-network connectivity. We can use the fact that we have multiple indicators of within-network connectivity to estimate the between-person variability, as well as the within-person (session-to-session) variability as distinct from measurement error (we assume that each parcel-parcel functional connectivity estimate in a network is an estimate of that network's connectivity)<sup>\*</sup>.
+
+\* This assumption means that we essentially treat differences in the FC between one pair and another as measurement error.
+
+We can compute an ICC that describes both within-person and between-person variability by using a 3 level model. First, I subset the data for a single network. I then build an intercept-only model, allowing the intercept to vary by participant-ID, and by session within each ID. I want to make sure that the intercept is not just the mean across all parcel-pairs, even though the pairs are within-hemisphere. This is because what is typically done (according to Nessa) is that the FC is computed within hemisphere and then averaged across the two hemispheres. To accomplish this we can just inlucde a dummy code for left versus right hemisphere, where `RH = -.5` and `LH = .5`. We should let this vary per-person and per-person-session to ensure we accomplish the same thing as if we had computed this separately for each person-session.
+
+$$
+\begin{align}
+z &= \beta_{0jk} + \beta_{1jk}\text{H}_{ijk} + \epsilon_{ijk} \\
+\beta_{0jk} &= \pi_{00k} + \nu_{0jk} \\
+\beta_{1jk} &= \pi_{10k} + \nu_{1jk} \\
+\pi_{00k} &= \gamma_{000} + \upsilon_{00k} \\
+\pi_{10k} &= \gamma_{100} + \upsilon_{10k}
+\end{align}
+$$
+
+$$
+\begin{align}
+z = &\gamma_{000} + \upsilon_{00k}  + \nu_{0jk} + \\
+&(\gamma_{100} + \upsilon_{10k} + \nu_{1jk})\text{H}_{ijk} + \\
+&\epsilon_{ijk}
+\end{align}
+$$
+Where $z$ is the measure of functional connectivity, and $i$ indexes observations within each session, $j$, for each participant $k$. This means that we are able to estimate variance in per-person deviations ($\upsilon_{00k}$) from the network mean-connectivity ($\gamma_{000}$), per-session-deviations ($\nu_{0jk}$) from those per-person deviations, and the residual not explained by variability over persons or person-sessions ($\epsilon_{ijk}$). All these are adjusted by the the effect of hemisphere at every level.
+
+## Testing these out
+
+I want to make sure that these models are correct, so I'll compare the variance portions, and total variance, between the two models.
+
+```{r}
+library(lme4)
+networks <- unique(sea_schaefer400_7_withinnet$net1)
+this_net <- networks[[2]]
+this_net_dt <- sea_schaefer400_7_withinnet[net1 == this_net] 
+
+model_dir <- 'models'
+test_model_list <- list(test_2l = list(fn = file.path(model_dir, 'test_2l.RDS'),
+                                         form = z ~ 1 + H + (1 + H || id)),
+                          test_3l = list(fn = file.path(model_dir, 'test_3l.RDS'),
+                                         form = z ~ 1 + H + (1 + H || id/sess)),
+                          test_3l_noh = list(fn = file.path(model_dir, 'test_3l_noh.RDS'),
+                                             form = z ~ 1 + (1 | id/sess)))
+cl <- parallel::makePSOCKcluster(ncores - 1)
+
+test_model_fits <- parallel::parLapply(cl = cl, test_model_list, function(model_list, d){
+  library(lme4)
+  if(!file.exists(model_list[['fn']])){
+    f <- model_list[['form']]
+    fit <- lmer(f, data = d)
+    saveRDS(fit, model_list[['fn']])
+  } else {
+    fit <- readRDS(model_list[['fn']])
+  }
+  return(fit)
+}, d = this_net_dt)
+
+try(parallel::stopCluster(cl))
+```
+
+```{r}
+three_level <- test_model_fits$test_3l
+three_level_noh <- test_model_fits$test_3l_noh
+
+summary(three_level)
+summary(three_level_noh)
+lll_varcorr <- VarCorr(three_level)
+lll_varcorr_noh <- VarCorr(three_level_noh)
+
+report_df <- data.frame(
+  stat = c('id_var', 'sess_var', 'resid_var', 'total_var'),
+  three_level = c(lll_varcorr$id.1['(Intercept)','(Intercept)'],
+                  lll_varcorr$sess.id.1['(Intercept)','(Intercept)'],
+                  sigma(three_level)^2,
+                  sum(unlist(lapply(lll_varcorr, diag))) + sigma(three_level)^2),
+  three_level_noh = c(lll_varcorr_noh$id['(Intercept)','(Intercept)'],
+                      lll_varcorr_noh$`sess:id`['(Intercept)','(Intercept)'],
+                      sigma(three_level_noh)^2,
+                      sum(unlist(lapply(lll_varcorr_noh, diag))) + sigma(three_level_noh)^2))
+
+report_df$three_level_perc <- 
+  sprintf('%.1f%%', report_df$three_level/report_df$three_level[[4]]*100)
+report_df$three_level_noh_perc <- 
+  sprintf('%.1f%%', report_df$three_level_noh/report_df$three_level_noh[[4]]*100)
+report_df$three_level_RE_perc <- 
+  c(sprintf('%.1f%%', report_df$three_level[1:2]/sum(report_df$three_level[1:2])*100), '-', '-')
+report_df$three_level_RE_noh_perc <- 
+  c(sprintf('%.1f%%', report_df$three_level_noh[1:2]/sum(report_df$three_level_noh[1:2])*100), '-', '-')
+knitr::kable(report_df, digits = 5)
+
+```
