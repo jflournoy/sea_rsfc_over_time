@@ -268,6 +268,8 @@ The plots on the left, below, show model-expected functional connectivity pearso
 ```{r, results='asis', fig.height=3.5, fig.width=8}
 library(patchwork)
 
+max_points <- unlist(sea_schaefer400_7_withinnet[, .N, by = net1][, list(max = max(N))])
+
 plot_percents <- function(percent_table){
   ggplot(percent_table, aes(y = percent, x = out_of, fill = source)) + 
     geom_col(position = 'stack') + 
@@ -278,18 +280,19 @@ plot_percents <- function(percent_table){
     jftheme
 }
 
-plot_predictions <- function(amodel){
+plot_predictions <- function(amodel, max_points){
   adt <- as.data.table(amodel@frame)
   adt[, wave := factor(as.numeric(gsub('ses-(\\d+)', '\\1', sess)))]
   newdata <- unique(adt, by = c('id', 'sess', 'wave'))[, c('H', 'z') := list(0, NULL)]
   newdata$z_prime <- predict(amodel, newdata = newdata)
   newdata$z_prime_id <- predict(amodel, newdata = newdata, re.form = ~(1|id))
+  point_alpha <- .125 - dim(adt)[[1]]/max_points/8 + .01
   ggplot(newdata, aes(x = wave, y = tanh(z_prime), group = id)) + 
     #geom_violin(data = adt, aes(group = NULL, y = tanh(z)), size = 0, alpha = .5, fill = apal[[1]]) +
-    geom_point(data = adt, aes(group = NULL, y = tanh(z)), alpha = .01, color = apal[[1]], position = position_jitter(), size = .5) +
+    geom_point(data = adt, aes(group = NULL, y = tanh(z)), alpha = point_alpha, color = apal[[1]], position = position_jitter(), size = .5) +
     geom_point(color = apal[[3]], alpha = 1) + 
     geom_line(color = apal[[3]]) + 
-    geom_line(aes(y = z_prime_id), color = apal[[4]], alpha = 1, size = .25) + 
+    geom_rug(data = unique(newdata, by = 'id'), aes(y = z_prime_id, x = NULL), color = apal[[4]], alpha = 1, sides = 'tr', length = unit(0.03, "npc")) + 
     geom_hline(yintercept = 0, color = apal[[1]]) + 
     coord_cartesian(ylim = c(-.025, .65), xlim = c(1, 10)) + 
     labs(y = 'FC correlation', x = 'Session') + 
@@ -301,10 +304,10 @@ for(i in 1:length(model_fits)){
   network_name <- networks[[i]]
   cat('\n\n### ', network_name, '{.tabset}\n\n') 
   cat('\n\n#### Plot\n\n')
-  print(plot_predictions(model_fit) + plot_percents(proportion_variance_tables[[i]]) +
+  print(plot_predictions(model_fit, max_points = max_points) + plot_percents(proportion_variance_tables[[i]]) +
           plot_layout(ncol = 2, widths = c(4,1)))
-  cat('\n\n#### Table\n\n')
-  knitr::kable(tidyr::spread(proportion_variance_tables[[1]], out_of, percent), digits = 1)
+  cat('\n\n#### Table (%)\n\n')
+  print(knitr::kable(tidyr::spread(proportion_variance_tables[[1]], out_of, percent), digits = 1))
 
 }
 ```
