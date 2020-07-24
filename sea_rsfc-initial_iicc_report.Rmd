@@ -263,21 +263,46 @@ proportion_variance_tables <- lapply(model_fits, function(model_fit){
 })
 ```
 
+The plots on the left, below, show model-expected functional connectivity pearson correlations for each participant, for each session, overlayed on the raw data (one point per parcel, per session, per participant). A line for each participant's model-expected mean across all sessions is overlayed on this. The right plot shows proportions of variance accounted for by the random effect estimates as a proportion of both total variance, and total random effects (RE) variance. The total RE variance includes individual means (ID), individual means per session (ID/Session), and the difference in connectivity between right and left hemispheres (we treat this as a nuisance variable, essentially).
+
 ```{r, results='asis', fig.height=3.5, fig.width=8}
 library(patchwork)
+
+plot_percents <- function(percent_table){
+  ggplot(percent_table, aes(y = percent, x = out_of, fill = source)) + 
+    geom_col(position = 'stack') + 
+    scale_fill_manual(breaks = c('ID', 'ID/Session', 'Other RE', 'Residual'),
+                      values = apal[c(4,3,2,1)]) +
+    scale_y_continuous(breaks = c(0, 20, 40, 60, 80, 100), labels = paste0(c(0, 20, 40, 60, 80, 100), '%')) + 
+    labs(x = 'Variance (denominator)', y = '', fill = 'Variance source') +
+    jftheme
+}
+
+plot_predictions <- function(amodel){
+  adt <- as.data.table(amodel@frame)
+  adt[, wave := factor(as.numeric(gsub('ses-(\\d+)', '\\1', sess)))]
+  newdata <- unique(adt, by = c('id', 'sess', 'wave'))[, c('H', 'z') := list(0, NULL)]
+  newdata$z_prime <- predict(amodel, newdata = newdata)
+  newdata$z_prime_id <- predict(amodel, newdata = newdata, re.form = ~(1|id))
+  ggplot(newdata, aes(x = wave, y = tanh(z_prime), group = id)) + 
+    #geom_violin(data = adt, aes(group = NULL, y = tanh(z)), size = 0, alpha = .5, fill = apal[[1]]) +
+    geom_point(data = adt, aes(group = NULL, y = tanh(z)), alpha = .01, color = apal[[1]], position = position_jitter(), size = .5) +
+    geom_point(color = apal[[3]], alpha = 1) + 
+    geom_line(color = apal[[3]]) + 
+    geom_line(aes(y = z_prime_id), color = apal[[4]], alpha = 1, size = .25) + 
+    geom_hline(yintercept = 0, color = apal[[1]]) + 
+    coord_cartesian(ylim = c(-.025, .65), xlim = c(1, 10)) + 
+    labs(y = 'FC correlation', x = 'Session') + 
+    jftheme
+}
+
 for(i in 1:length(model_fits)){
   model_fit <- model_fits[[i]]
   network_name <- networks[[i]]
   cat('\n\n### ', network_name, '{.tabset}\n\n') 
   cat('\n\n#### Plot\n\n')
-  perc_plot <- ggplot(proportion_variance_tables[[i]], aes(y = percent, x = out_of, fill = source)) + 
-    geom_col(position = 'stack') + 
-    scale_fill_manual(breaks = c('ID', 'ID/Session', 'Other RE', 'Residual'),
-                      values = apal[c(4,3,2,1)]) +
-    labs(x = 'Variance (denominator)', y = '', fill = 'Variance source') +
-    jftheme
-  print(plot_predictions(as.data.table(model_fit@frame), model_fit) + perc_plot +
-          plot_layout(ncol = 2, widths = c(3,1)))
+  print(plot_predictions(model_fit) + plot_percents(proportion_variance_tables[[i]]) +
+          plot_layout(ncol = 2, widths = c(4,1)))
   cat('\n\n#### Table\n\n')
   knitr::kable(tidyr::spread(proportion_variance_tables[[1]], out_of, percent), digits = 1)
 
