@@ -7,7 +7,7 @@
 library(data.table)
 library(tidyr)
 if(is.na(ncores <- as.numeric(Sys.getenv('SLURM_CPUS_ON_NODE')))){
-  ncores <- 8
+  ncores <- 1
   message('No environment variable specifying number of cores. Setting to ', ncores, '.')
 }
 setDTthreads(ncores)
@@ -29,7 +29,7 @@ if(file.exists(fname)){
   message('Reading rsfc files...')
   if(ncores > 1){
     message('Using ', ncores, ' cores to read files.')
-    cl <- parallel::makePSOCKcluster(ncores)
+    cl <- parallel::makePSOCKcluster(max(c(ncores - 1), 1))
     
     adt_list <- unlist(parallel::parLapply(cl = cl, split(files, 1:ncores), function(part){
       lapply(part, function(f){

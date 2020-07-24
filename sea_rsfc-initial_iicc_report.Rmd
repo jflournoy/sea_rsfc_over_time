@@ -25,8 +25,14 @@ library(ggplot2)
 library(data.table)
 library(dplyr)
 library(tidyr)
+library(showtext)
 #{.tabset}
+
+font_add_google("Didact Gothic", "Didact Gothic")
+showtext_auto()
+
 knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+#https://www.instagram.com/p/CC3EvmLgt2m/?utm_source=ig_web_copy_link
 apal <- paste0('#',c('2C2B2B', 'F9773B', 'FFEA8C', '1389E6', 'D2E5E7'))
 jftheme <- theme_minimal() +  
     theme(text = element_text(family = 'Didact Gothic', size = 14),
@@ -77,21 +83,51 @@ if(!dim(distinct(sea_schaefer400_7_withinnet, net1, net2, hem1, hem2))[[1]] == 1
 }
 ```
 
-# Some QC
+# Some QC {.tabset}
 
-```{r fig.width=10, fig.height=10}
-hist_plot_fname <- 'hist_plot.png'
-if(!file.exists(hist_plot_fname)){
-  hist_plot <- ggplot(sea_schaefer400_7_withinnet, aes(x = z)) + 
-    geom_density(data = sea_schaefer400_7_withinnet[,'z'], aes(fill = 'Group', color = 'Group'), alpha = .5) + 
-    geom_density(aes(fill = 'ID', color = 'ID'), alpha = .5) + 
-    scale_fill_manual(aesthetics = c('color','fill'), breaks = c('Group', 'ID'), labels = c('Group', 'ID'), values = apal[c(4,2)], name = 'Data') +
-    facet_wrap(~id) + 
-    jftheme
+Density of functional connectivity (pearson correlation) for each participant, for each subject, overlayed on the density for all sessions and participants.
+
+```{r}
+#Generate group-level density
+agg_mean <- mean(sea_schaefer400_7_withinnet$z)
+agg_sd <- sd(sea_schaefer400_7_withinnet$z)
+scalez <- (sea_schaefer400_7_withinnet$z - agg_mean) / agg_sd
+density_agg <- density(scalez)
+sea_schaefer400_densplot_agg <- data.table(x = density_agg$x,
+                                           x_on_z = density_agg$x * agg_sd + agg_mean,
+                                           y = density_agg$y)
+#Generate per-participant-session densities
+sea_schaefer400_MSD <- sea_schaefer400_7_withinnet[, list(mean = mean(z),
+                                                          sd = sd(z)), 
+                                                   by = c('id', 'sess')]
+sea_schaefer400_densplot <- sea_schaefer400_MSD[sea_schaefer400_7_withinnet, 
+                                                on = c('id', 'sess')]
+sea_schaefer400_densplot[, scalez := (z - mean)/sd]
+sea_schaefer400_densplot <- 
+  sea_schaefer400_MSD[sea_schaefer400_densplot[, list(x = density(scalez)$x,
+                                                      y = density(scalez)$y), 
+                                               by = c('id', 'sess')],
+                      on = c('id', 'sess')][, x_on_z := sd*x + mean]
+```
+
+```{r, results = 'asis', fig.width=8, fig.height=8}
+u_ids <- unique(sea_schaefer400_densplot$id)
+for(an_id in u_ids){
+  cat(paste0('\n\n## ', an_id, '\n\n'))
   
-  ggsave(hist_plot_fname, hist_plot)
+  hplot <- ggplot(sea_schaefer400_densplot_agg, aes(x = tanh(x_on_z), y = y)) + 
+    geom_ribbon(ymin = 0, aes(ymax = y, fill = 'Group', color  = 'Group'), 
+                alpha = .5) + 
+    geom_ribbon(data = sea_schaefer400_densplot[id == an_id, ], 
+                ymin = 0, aes(ymax = y, fill = 'ID', color  = 'ID'), 
+                alpha = .5) + 
+    scale_fill_manual(aesthetics = c('color','fill'), breaks = c('Group', 'ID'), labels = c('Group', 'Participant'), values = apal[c(2,4)], name = 'Data') +
+    facet_wrap(~sess, ncol = 2) + 
+    labs(x = 'correlation', y = 'density') + 
+    coord_cartesian(xlim = c(-1, 1), ylim = c(0, .5)) + 
+    jftheme
+  print(hplot)
 }
-knitr::include_graphics(hist_plot_fname)
 ```
 
 # Modeling
@@ -100,7 +136,7 @@ We are interested in stability and variability for each network. For each partic
 
 \* This assumption means that we essentially treat differences in the FC between one pair and another as measurement error.
 
-We can compute an ICC that describes both within-person and between-person variability by using a 3 level model. First, I subset the data for a single network. I then build an intercept-only model, allowing the intercept to vary by participant-ID, and by session within each ID. I want to make sure that the intercept is not just the mean across all parcel-pairs, even though the pairs are within-hemisphere. This is because what is typically done (according to Nessa) is that the FC is computed within hemisphere and then averaged across the two hemispheres. To accomplish this we can just inlucde a dummy code for left versus right hemisphere, where `RH = -.5` and `LH = .5`. We should let this vary per-person and per-person-session to ensure we accomplish the same thing as if we had computed this separately for each person-session.
+We can compute an ICC that describes both within-person and between-person variability by using a 3 level model. First, I subset the data for a single network. I then build an intercept-only model, allowing the intercept to vary by participant-ID, and by session within each ID. I want to make sure that the intercept is not just the mean across all parcel-pairs, even though the pairs are within-hemisphere. This is because what is typically done (according to Nessa) is that the FC is computed within hemisphere and then averaged across the two hemispheres. To accomplish this we can just inlucde a dummy code for left versus right hemisphere, where `RH = -1` and `LH = 1`. We should let this vary per-person and per-person-session to ensure we accomplish the same thing as if we had computed this separately for each person-session.
 
 $$
 \begin{align}
@@ -138,7 +174,7 @@ test_model_list <- list(test_2l = list(fn = file.path(model_dir, 'test_2l.RDS'),
                                          form = z ~ 1 + H + (1 + H || id/sess)),
                           test_3l_noh = list(fn = file.path(model_dir, 'test_3l_noh.RDS'),
                                              form = z ~ 1 + (1 | id/sess)))
-cl <- parallel::makePSOCKcluster(ncores - 1)
+cl <- parallel::makePSOCKcluster(max(c(ncores - 1), 1))
 
 test_model_fits <- parallel::parLapply(cl = cl, test_model_list, function(model_list, d){
   library(lme4)
@@ -184,5 +220,67 @@ report_df$three_level_RE_perc <-
 report_df$three_level_RE_noh_perc <- 
   c(sprintf('%.1f%%', report_df$three_level_noh[1:2]/sum(report_df$three_level_noh[1:2])*100), '-', '-')
 knitr::kable(report_df, digits = 5)
-
 ```
+
+## Fit for each network {.tabset}
+
+```{r}
+networks <- unique(sea_schaefer400_7_withinnet$net1)
+
+netlist <- lapply(networks, function(this_net){
+  return(list(network = this_net, d = sea_schaefer400_7_withinnet[net1 == this_net]))
+})
+
+cl <- parallel::makePSOCKcluster(max(c(ncores - 1, 1)))
+model_fits <- parallel::parLapply(cl = cl, netlist, function(anet){
+  this_net <- anet[['network']]
+  this_net_dt <- anet[['d']]
+  model_dir <- 'models'
+  model_fit_fn <- file.path(model_dir, paste0('lmer_fit-3l-', this_net, '.RDS'))
+  library(lme4)
+  if(!file.exists(model_fit_fn)){
+    fit <- lmer(z ~ 1 + H + (1 + H || id/sess), data = this_net_dt)
+    saveRDS(fit, model_fit_fn)
+  } else {
+    fit <- readRDS(model_fit_fn)
+  }
+  return(fit)
+})
+try(parallel::stopCluster(cl))
+
+proportion_variance_tables <- lapply(model_fits, function(model_fit){
+  vc <- VarCorr(model_fit)
+  id_v <- vc$id.1['(Intercept)','(Intercept)']
+  idsess_v <- vc$sess.id.1['(Intercept)','(Intercept)']
+  s_2 <- sigma(model_fit)^2
+  total_RE <- sum(unlist(lapply(vc, diag)))
+  other_RE <- total_RE - id_v - idsess_v
+  total <- total_RE + s_2
+  return(data.frame(source = rep(c('ID', 'ID/Session', 'Other RE', 'Residual'),2),
+                    out_of = factor(c(rep('total', 4), rep('RE', 4)), levels = c('total', 'RE')),
+                    percent = c(c(id_v, idsess_v, other_RE, s_2)*100 / total,
+                                c(id_v, idsess_v, other_RE, NA)*100 / total_RE)))
+})
+```
+
+```{r, results='asis', fig.height=3.5, fig.width=8}
+library(patchwork)
+for(i in 1:length(model_fits)){
+  model_fit <- model_fits[[i]]
+  network_name <- networks[[i]]
+  cat('\n\n### ', network_name, '{.tabset}\n\n') 
+  cat('\n\n#### Plot\n\n')
+  perc_plot <- ggplot(proportion_variance_tables[[i]], aes(y = percent, x = out_of, fill = source)) + 
+    geom_col(position = 'stack') + 
+    scale_fill_manual(breaks = c('ID', 'ID/Session', 'Other RE', 'Residual'),
+                      values = apal[c(4,3,2,1)]) +
+    labs(x = 'Variance (denominator)', y = '', fill = 'Variance source') +
+    jftheme
+  print(plot_predictions(as.data.table(model_fit@frame), model_fit) + perc_plot +
+          plot_layout(ncol = 2, widths = c(3,1)))
+  cat('\n\n#### Table\n\n')
+  knitr::kable(tidyr::spread(proportion_variance_tables[[1]], out_of, percent), digits = 1)
+
+}
+```
+
