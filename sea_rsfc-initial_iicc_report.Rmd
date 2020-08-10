@@ -298,7 +298,8 @@ plot_predictions <- function(amodel, max_points){
     labs(y = 'FC correlation', x = 'Session') + 
     jftheme
 }
-
+font_add_google("Didact Gothic", "Didact Gothic")
+showtext_auto()
 for(i in 1:length(model_fits)){
   model_fit <- model_fits[[i]]
   network_name <- networks[[i]]
@@ -307,7 +308,7 @@ for(i in 1:length(model_fits)){
   print(plot_predictions(model_fit, max_points = max_points) + plot_percents(proportion_variance_tables[[i]]) +
           plot_layout(ncol = 2, widths = c(4,1)))
   cat('\n\n#### Table (%)\n\n')
-  print(knitr::kable(tidyr::spread(proportion_variance_tables[[1]], out_of, percent), digits = 1))
+  print(knitr::kable(tidyr::spread(proportion_variance_tables[[i]], out_of, percent), digits = 1))
 
 }
 ```
