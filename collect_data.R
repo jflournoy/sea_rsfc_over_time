@@ -7,20 +7,20 @@
 library(data.table)
 library(tidyr)
 if(is.na(ncores <- as.numeric(Sys.getenv('SLURM_CPUS_ON_NODE')))){
-  ncores <- 1
+  ncores <- 10
   message('No environment variable specifying number of cores. Setting to ', ncores, '.')
 }
 setDTthreads(ncores)
 
-fname <- 'sea_rsfc_schaefer400x7.RDS'
+fname <- 'sea_rsfc_fslong_schaefer400x7.RDS'
 if(file.exists(fname)){
   adt_labels <- readRDS(fname)
 } else {
-  data_dir <- '/net/holynfs01/srv/export/mclaughlin/share_root/stressdevlab/SEA_BIDS/derivatives/1.4.1-final/xcpengine-default'
+  data_dir <- '/net/holynfs01/srv/export/mclaughlin/share_root/stressdevlab/SEA_REST/derivatives/fmriprep-20.1.1/xcpengine-default/'
   subs <- sprintf('sub-10%02d', c(1:16,18:31))
-  sess <- sprintf('ses-%02d', 1:10)
+  sess <- sprintf('%02d', 1:10)
   subses <- expand.grid(sess, subs)
-  files <- paste0(data_dir, '/', subses[,2], '/', subses[,1], '/fcon/schaefer400x7/', subses[,2], '_', subses[,1], '_schaefer400x7.net')
+  files <- paste0(data_dir, '/', subses[,2], subses[,1], '/fcon/schaefer400x7/', subses[,2], subses[,1], '_schaefer400x7.net')
   file_id <- paste0(subses[,2], '_', subses[,1])
   
   message('Creating file list...')
@@ -72,4 +72,17 @@ if(file.exists(fname)){
   adt_labels[, c('id', 'sess') := tstrsplit(id, '_', fixed = TRUE)]
   message('Saving RDS file to: ', fname)
   saveRDS(adt_labels, fname)
+}
+
+if(FALSE){
+  adt_labels_old <- readRDS('sea_rsfc_schaefer400x7.RDS')
+  missing_files_csv <- data.table(file = files, does_not_exist = files_list == '')
+  View(missing_files_csv[does_not_exist == TRUE])
+  readr::write_csv(data.table(file = files, does_not_exist = files_list == ''), 
+                   '~/sea_rsfc-missing_fcon_output.csv')
+  
+  a <- data.table(file = files, does_not_exist = files_list == '')
+  a[, fcon_missing := lapply(gsub('(.*/fcon)/.*', '\\1', file), function(x) !file.exists(x))]
+  a[, missmatch := does_not_exist != fcon_missing ]
+  a[(missmatch), file]
 }
