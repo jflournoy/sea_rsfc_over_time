@@ -12,17 +12,10 @@ if(is.na(ncores <- as.numeric(Sys.getenv('SLURM_CPUS_ON_NODE')))){
 }
 setDTthreads(ncores)
 
-fname <- 'sea_rsfc_fslong_schaefer400x7.RDS'
 if(file.exists(fname)){
   adt_labels <- readRDS(fname)
+  schaefer_400_7_net_ids <- readRDS('schaefer_ids.RDS')
 } else {
-  data_dir <- '/net/holynfs01/srv/export/mclaughlin/share_root/stressdevlab/SEA_REST/derivatives/fmriprep-20.1.1/xcpengine-default/'
-  subs <- sprintf('sub-10%02d', c(1:16,18:31))
-  sess <- sprintf('%02d', 1:10)
-  subses <- expand.grid(sess, subs)
-  files <- paste0(data_dir, '/', subses[,2], subses[,1], '/fcon/schaefer400x7/', subses[,2], subses[,1], '_schaefer400x7.net')
-  file_id <- paste0(subses[,2], '_', subses[,1])
-  
   message('Creating file list...')
   files_list <- lapply(files, function(x) ifelse(file.exists(x), x, ''))
   
@@ -40,7 +33,7 @@ if(file.exists(fname)){
         }
       })
     }), recursive = FALSE)
-    try(stop(cl))
+    try(parallel::stopCluster(cl))
   } else {
     adt_list <- lapply(files, function(f){
       if(file.exists(f)){
@@ -72,6 +65,8 @@ if(file.exists(fname)){
   adt_labels[, c('id', 'sess') := tstrsplit(id, '_', fixed = TRUE)]
   message('Saving RDS file to: ', fname)
   saveRDS(adt_labels, fname)
+  message('Saving Schaefer ID data table to schaefer_ids.rds')
+  saveRDS(schaefer_400_7_net_ids, 'schaefer_ids.RDS')
 }
 
 if(FALSE){
