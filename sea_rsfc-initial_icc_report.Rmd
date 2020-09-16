@@ -22,7 +22,7 @@ pre code {
 ```
 
 ```{r setup, include=FALSE}
-fslong <- TRUE
+fslong <- FALSE
 library(ggplot2)
 library(data.table)
 library(dplyr)
@@ -217,11 +217,12 @@ library(lme4)
 networks <- unique(sea_schaefer400_7_withinnet$net1)
 this_net <- networks[[2]]
 this_net_dt <- sea_schaefer400_7_withinnet[net1 == this_net] 
+fslong_insert <- ifelse(fslong, '_fslong', '')
 
 model_dir <- 'models'
-test_model_list <- list(test_2l = list(fn = file.path(model_dir, 'test_noh_2l.RDS'),
+test_model_list <- list(test_2l = list(fn = file.path(model_dir, paste0('test_noh', fslong_insert, '_2l.RDS')),
                                          form = z ~ 1 + (1 | id)),
-                          test_3l = list(fn = file.path(model_dir, 'test_noh_3l.RDS'),
+                          test_3l = list(fn = file.path(model_dir, paste0('test_noh', fslong_insert, '_3l.RDS')),
                                          form = z ~ 1 + (1 | id/sess)))
 cl <- parallel::makePSOCKcluster(max(c(ncores - 1), 1))
 
