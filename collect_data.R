@@ -7,7 +7,7 @@
 library(data.table)
 library(tidyr)
 if(is.na(ncores <- as.numeric(Sys.getenv('SLURM_CPUS_ON_NODE')))){
-  ncores <- 10
+  ncores <- 1
   message('No environment variable specifying number of cores. Setting to ', ncores, '.')
 }
 setDTthreads(ncores)

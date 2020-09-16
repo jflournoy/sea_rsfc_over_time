@@ -22,7 +22,7 @@ pre code {
 ```
 
 ```{r setup, include=FALSE}
-fslong <- FALSE
+fslong <- TRUE
 library(ggplot2)
 library(data.table)
 library(dplyr)
