@@ -21,7 +21,7 @@ pre code {
 }
 ```
 
-```{r setup, include=FALSE}
+```{r setup}
 fslong <- FALSE ### CHANGE FILE NAME TOO!
 library(ggplot2)
 library(data.table)
@@ -31,7 +31,7 @@ library(showtext)
 #{.tabset}
 
 font_add_google("Didact Gothic", "Didact Gothic")
-showtext_auto()
+
 
 knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
 #https://www.instagram.com/p/CC3EvmLgt2m/?utm_source=ig_web_copy_link
@@ -46,6 +46,14 @@ jftheme <- theme_minimal() +
           axis.text =  element_text(color = apal[[1]]), axis.title = element_text(color = apal[[1]]))
 knitr::read_chunk('collect_data.R')
 knitr::read_chunk('fit_models.R')
+```
+
+```{r results = 'asis'}
+if(fslong){
+  cat('\n\n# FreeSurfer Longitudinal Registration\n\n')
+} else {
+  cat('\n\n# fMRI-prep Basic Registration\n\n')
+}
 ```
 
 # Load the data
@@ -85,6 +93,109 @@ do.call(DT::datatable,
 do.call(DT::datatable, 
         c(list(connectivity_feature_check[Nfeatures != expected_Nfeatures][, .N, by = c('id', 'sess')],
                caption = 'Number of mismatches for subject sessions'),
+          dt_options))
+```
+
+## Node coverage {.tabset}
+
+Each node in a network should be connected to N - 1 other nodes in the network, where N is the number of total nodes in the network.
+
+### Mean connections-per-node
+
+```{r fig.width=5, fig.height=10}
+node_check <- sea_schaefer400_7_withinnet[, c('node1', 'node2', 'id', 'sess', 'net2', 'hem2')]
+node_check[, idx := 1:.N, by = c('id', 'sess', 'net2', 'hem2')]
+node_check[, c('maxnode', 'minnode') := .(max(node1, node2), min(node1, node2)), by = c('node1', 'node2')]
+node_check_l <- melt(node_check, measure.vars = c('maxnode', 'minnode'), value.name = 'node')
+node_info <- node_check_l[, .N, 
+                          by = c('id', 'sess', 'net2', 'node', 'hem2')][, list(total = max(N)), 
+                                                                        by = c('node', 'net2', 'hem2')]
+net_info <- node_info[, .(total = unique(total)), by = c('net2', 'hem2')]
+node_check_subj <- node_check_l[, .N, by = c('sess', 'id', 'node', 'net2', 'hem2')]
+
+node_check_subj <- net_info[node_check_subj, on = c('net2', 'hem2')]
+node_check_subj_summary <- node_check_subj[, .(observed = mean(N),
+                                               expected = mean(total),
+                                               proportion = sum(N) / sum(total)),
+                                           by = c('node', 'net2', 'hem2')]
+node_check_subj_summary[, network := paste(net2, hem2, sep = '_')]
+
+node_check_subj_summary_l <- melt(node_check_subj_summary, measure.vars = c('observed', 'expected'))
+node_check_subj_summary_l[, variable := factor(variable, levels = c('expected', 'observed'))]
+ggplot(node_check_subj_summary_l,
+       aes(x = node, y = value)) + 
+  geom_line(aes(fill = variable, color = variable), position = position_identity()) + 
+  scale_color_manual(values = apal[c(1,2)], aesthetics = c('color', 'fill')) + 
+  facet_wrap(~ network, ncol = 2, scales = 'free') + 
+  jftheme + 
+  labs(y = 'Mean number of connections from node', x = 'Node')
+```
+
+### Proportion connections-per-node
+
+```{r fig.width=5, fig.height=10}
+ggplot(node_check_subj_summary,
+       aes(x = node, y = proportion)) + 
+  geom_line(color = apal[[4]]) + 
+  facet_wrap(~ network, ncol = 2, scales = 'free') + 
+  jftheme + 
+  labs(y = 'Proportion of expected connections from node', x = 'Node')
+```
+
+### Mean across sessions by subject
+
+```{r, fig.height=10, fig.width=8}
+node_check_sess_summary <- node_check_subj[, .(mean = mean(N),
+                                               proportion = sum(N) / sum(total)),
+                                           by = c('id', 'net2', 'hem2', 'sess')]
+node_check_sess_summary[, sess_num := as.numeric(gsub('ses-(\\d+)', '\\1', sess))]
+ggplot(node_check_sess_summary,
+       aes(x = sess_num, y = mean)) + 
+  geom_line(aes(group = id, color = id), alpha = .5) + 
+  facet_grid(net2 ~ hem2, scales = 'free') + 
+  jftheme + 
+  labs(y = 'Mean variability per node', x = 'Session')
+```
+
+### Proportion across sessions by subject
+
+```{r, fig.height=10, fig.width=8}
+node_check_sess_summary <- node_check_subj[, .(mean = mean(N),
+                                               proportion = sum(N) / sum(total)),
+                                           by = c('id', 'net2', 'hem2', 'sess')]
+node_check_sess_summary[, sess_num := as.numeric(gsub('ses-(\\d+)', '\\1', sess))]
+ggplot(node_check_sess_summary,
+       aes(x = sess_num, y = proportion)) + 
+  geom_line(aes(group = id, color = id), alpha = .5) + 
+  facet_grid(net2 ~ hem2) + 
+  jftheme + 
+  labs(y = 'Proportion variability per node', x = 'Session')
+```
+
+### Another proportion across subjects
+
+```{r, fig.height=10, fig.width=8}
+node_check_sess_summary[, proportion_scaled := proportion / .N * 10, by = c('hem2', 'net2', 'id')]
+id_props <- node_check_sess_summary[, list(prop_mean = mean(proportion, na.rm = TRUE)), by = c('id')]
+node_check_sess_summary[, id_sorted := factor(id, levels = id_props$id[order(id_props$prop_mean)])]
+ggplot(node_check_sess_summary, aes(x = id_sorted, y = proportion_scaled)) + 
+  geom_col(aes(group = sess, fill = proportion, color = proportion), 
+           position = 'stack') + 
+  scale_fill_gradientn(colors = apal[c(2,1)], values = c(0, 1), 
+                       aesthetics = c('fill', 'color')) +
+  facet_grid(net2 ~ hem2) + 
+  jftheme + 
+  theme(axis.text.x = element_text(angle = 360-65, hjust = 0, size = 6))
+```
+
+### Overall proportions table
+
+```{r} 
+setorder(id_props, 'prop_mean')
+id_props[, `Mean prop.` := sprintf('%0.2f', prop_mean)]
+do.call(DT::datatable, 
+        c(list(id_props[, c('id', 'Mean prop.')],
+               caption = 'Average proportion coverage'), 
           dt_options))
 ```
 
