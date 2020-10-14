@@ -218,9 +218,10 @@ colnames <-
 setnames(prop_resid_explained_w, colnames)
 colnames <- colnames[c(1,8,9,2,3,6,7,4,5)]
 setcolorder(prop_resid_explained_w, colnames)
-dt_table(prop_resid_explained_w, caption = "Variance explained by session and ID random effects", 
-         dt_options = list(options = list(
-           columnDefs = list(list(className = 'dt-right', targets = 1:8)))))
+knitr::kable(prop_resid_explained_w, caption = "Variance explained by session and ID random effects")
+# dt_table(prop_resid_explained_w, caption = "Variance explained by session and ID random effects", 
+#          dt_options = list(options = list(
+#            columnDefs = list(list(className = 'dt-right', targets = 1:8)))))
 ```
 
 ```{r}
